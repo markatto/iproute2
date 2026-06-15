@@ -111,6 +111,7 @@ static int show_tipcinfo;
 static int show_tos;
 static int show_cgroup;
 static int show_inet_sockopt;
+static int show_sock_opt;
 int oneline;
 
 enum col_id {
@@ -2894,6 +2895,56 @@ outerr:
 	return ferror(fp) ? -1 : 0;
 }
 
+/* Decode a *_DIAG_SK_OPTS attribute (SOL_SOCKET booleans). Shared by every
+ * socket family, since the kernel fills them from the generic struct sock.
+ */
+static void sk_opts_show(struct rtattr *attr)
+{
+	const struct sock_diag_sk_opts *o;
+
+	if (!attr || RTA_PAYLOAD(attr) < sizeof(*o))
+		return;
+	o = RTA_DATA(attr);
+
+	if (!oneline)
+		out("\n\tsk-opts: (");
+	else
+		out(" sk-opts: (");
+	if (o->reuseaddr)
+		out(" reuseaddr");
+	if (o->reuseport)
+		out(" reuseport");
+	if (o->keepalive)
+		out(" keepalive");
+	if (o->broadcast)
+		out(" broadcast");
+	if (o->oobinline)
+		out(" oobinline");
+	if (o->dontroute)
+		out(" dontroute");
+	if (o->linger)
+		out(" linger");
+	if (o->timestamp)
+		out(" timestamp");
+	if (o->timestampns)
+		out(" timestampns");
+	if (o->debug)
+		out(" debug");
+	if (o->zerocopy)
+		out(" zerocopy");
+	if (o->txtime)
+		out(" txtime");
+	if (o->rxq_ovfl)
+		out(" rxq_ovfl");
+	if (o->select_err_queue)
+		out(" select_err_queue");
+	if (o->nofcs)
+		out(" nofcs");
+	if (o->rcvmark)
+		out(" rcvmark");
+	out(")");
+}
+
 static void print_skmeminfo(struct rtattr *tb[], int attrtype)
 {
 	const __u32 *skmeminfo;
@@ -3855,6 +3906,9 @@ static int inet_show_sock(struct nlmsghdr *nlh,
 		}
 	}
 
+	if (show_sock_opt)
+		sk_opts_show(tb[INET_DIAG_SK_OPTS]);
+
 	if (show_mem || (show_tcpinfo && s->type != IPPROTO_UDP)) {
 		if (!oneline)
 			out("\n\t");
@@ -4536,6 +4590,8 @@ static int unix_show_sock(struct nlmsghdr *nlh, void *arg)
 
 	if (show_mem)
 		print_skmeminfo(tb, UNIX_DIAG_MEMINFO);
+	if (show_sock_opt)
+		sk_opts_show(tb[UNIX_DIAG_SK_OPTS]);
 	if (show_details) {
 		if (tb[UNIX_DIAG_SHUTDOWN]) {
 			unsigned char mask;
@@ -4598,6 +4654,8 @@ static int unix_show_netlink(struct filter *f)
 		req.r.udiag_show |= UDIAG_SHOW_MEMINFO;
 	if (show_details)
 		req.r.udiag_show |= UDIAG_SHOW_VFS | UDIAG_SHOW_ICONS;
+	if (show_sock_opt)
+		req.r.udiag_show |= UDIAG_SHOW_SK_OPTS;
 
 	return handle_netlink_request(f, &req.nlh, sizeof(req), unix_show_sock);
 }
@@ -4833,6 +4891,9 @@ static int packet_show_sock(struct nlmsghdr *nlh, void *arg)
 	if (packet_stats_print(&stat, f))
 		return 0;
 
+	if (show_sock_opt)
+		sk_opts_show(tb[PACKET_DIAG_SK_OPTS]);
+
 	if (show_details) {
 		if (pinfo) {
 			if (oneline)
@@ -4930,6 +4991,8 @@ static int packet_show_netlink(struct filter *f)
 	req.r.sdiag_family = AF_PACKET;
 	req.r.pdiag_show = PACKET_SHOW_INFO | PACKET_SHOW_MEMINFO |
 		PACKET_SHOW_FILTER | PACKET_SHOW_RING_CFG | PACKET_SHOW_FANOUT;
+	if (show_sock_opt)
+		req.r.pdiag_show |= PACKET_SHOW_SK_OPTS;
 
 	return handle_netlink_request(f, &req.nlh, sizeof(req), packet_show_sock);
 }
@@ -5116,6 +5179,9 @@ static int xdp_show_sock(struct nlmsghdr *nlh, void *arg)
 	if (xdp_stats_print(&stat, f))
 		return 0;
 
+	if (show_sock_opt)
+		sk_opts_show(tb[XDP_DIAG_SK_OPTS]);
+
 	if (show_details) {
 		if (rx)
 			xdp_show_ring("rx", rx);
@@ -5144,6 +5210,8 @@ static int xdp_show(struct filter *f)
 	req.r.sdiag_family = AF_XDP;
 	req.r.xdiag_show = XDP_SHOW_INFO | XDP_SHOW_RING_CFG | XDP_SHOW_UMEM |
 			   XDP_SHOW_MEMINFO | XDP_SHOW_STATS;
+	if (show_sock_opt)
+		req.r.xdiag_show |= XDP_SHOW_SK_OPTS;
 
 	return handle_netlink_request(f, &req.nlh, sizeof(req), xdp_show_sock);
 }
@@ -5278,6 +5346,9 @@ static int netlink_show_sock(struct nlmsghdr *nlh, void *arg)
 		print_skmeminfo(tb, NETLINK_DIAG_MEMINFO);
 	}
 
+	if (show_sock_opt)
+		sk_opts_show(tb[NETLINK_DIAG_SK_OPTS]);
+
 	return 0;
 }
 
@@ -5288,6 +5359,8 @@ static int netlink_show_netlink(struct filter *f)
 	req.r.sdiag_family = AF_NETLINK;
 	req.r.sdiag_protocol = NDIAG_PROTO_ALL;
 	req.r.ndiag_show = NDIAG_SHOW_GROUPS | NDIAG_SHOW_MEMINFO;
+	if (show_sock_opt)
+		req.r.ndiag_show |= NDIAG_SHOW_SK_OPTS;
 
 	return handle_netlink_request(f, &req.nlh, sizeof(req), netlink_show_sock);
 }
@@ -5793,6 +5866,7 @@ static void _usage(FILE *dest)
 "   -Q, --no-queues     Suppress sending and receiving queue columns\n"
 "   -O, --oneline       socket's data printed on a single line\n"
 "       --inet-sockopt  show various inet socket options\n"
+"       --sock-opt      show SOL_SOCKET-level options (SO_REUSEADDR etc.)\n"
 "\n"
 "   -A, --query=QUERY, --socket=QUERY\n"
 "       QUERY := {all|inet|tcp|mptcp|udp|raw|unix|unix_dgram|unix_stream|unix_seqpacket|packet|packet_raw|packet_dgram|netlink|dccp|sctp|vsock_stream|vsock_dgram|tipc|xdp}[,QUERY]\n"
@@ -5896,6 +5970,8 @@ wrong_state:
 #define OPT_BPF_MAPS 263
 #define OPT_BPF_MAP_ID 264
 
+#define OPT_SOCK_OPT 265
+
 static const struct option long_opts[] = {
 	{ "numeric", 0, 0, 'n' },
 	{ "resolve", 0, 0, 'r' },
@@ -5942,6 +6018,7 @@ static const struct option long_opts[] = {
 	{ "mptcp", 0, 0, 'M' },
 	{ "oneline", 0, 0, 'O' },
 	{ "inet-sockopt", 0, 0, OPT_INET_SOCKOPT },
+	{ "sock-opt", 0, 0, OPT_SOCK_OPT },
 #ifdef ENABLE_BPF_SKSTORAGE_SUPPORT
 	{ "bpf-maps", 0, 0, OPT_BPF_MAPS},
 	{ "bpf-map-id", 1, 0, OPT_BPF_MAP_ID},
@@ -6153,6 +6230,9 @@ int main(int argc, char *argv[])
 			break;
 		case OPT_INET_SOCKOPT:
 			show_inet_sockopt = 1;
+			break;
+		case OPT_SOCK_OPT:
+			show_sock_opt = 1;
 			break;
 #ifdef ENABLE_BPF_SKSTORAGE_SUPPORT
 		case OPT_BPF_MAPS:
