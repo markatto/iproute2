@@ -404,6 +404,11 @@ Display MPTCP sockets.
 .B \-\-inet-sockopt
 Display inet socket options.
 .TP
+.B \-\-sock-opt
+Display SOL_SOCKET-level options (SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE,
+SO_BROADCAST, SO_OOBINLINE, SO_DONTROUTE, SO_LINGER, SO_TIMESTAMP and a few
+others).
+.TP
 .B \-f FAMILY, \-\-family=FAMILY
 Display sockets of type FAMILY.  Currently the following families are
 supported: unix, inet, inet6, link, netlink, vsock, tipc, xdp.
